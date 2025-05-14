@@ -1,21 +1,31 @@
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.storage.blob import BlobServiceClient
+from azure.identity import DefaultAzureCredential
 from typing import List, Dict, Optional, BinaryIO
 from datetime import datetime, timedelta
 from ..base import CloudStorage
 from ..exceptions import OperationError, FileNotFoundError
+import os
 
 class AzureBlobStorage(CloudStorage):
     """Azure Blob Storage implementation."""
     
-    def __init__(self, bucket_name: str, connection_string: str):
+    def __init__(self, bucket_name: str, account_url: str = None):
         """Initialize Azure Blob Storage.
         
         Args:
             bucket_name: Name of the container
-            connection_string: Azure Storage connection string
+            account_url: Azure Storage account URL (e.g., https://<account>.blob.core.windows.net)
+                        If not provided, will try to get from AZURE_STORAGE_ACCOUNT_URL environment variable
         """
         self.container_name = bucket_name
-        self.blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        credential = DefaultAzureCredential()
+        
+        if not account_url:
+            account_url = os.getenv('AZURE_STORAGE_ACCOUNT_URL')
+            if not account_url:
+                raise ConfigurationError("Missing Azure Storage account URL. Please provide it or set AZURE_STORAGE_ACCOUNT_URL environment variable")
+        
+        self.blob_service_client = BlobServiceClient(account_url, credential=credential)
         self.container_client = self.blob_service_client.get_container_client(bucket_name)
 
     def upload_file(self, local_file_path: str, remote_file_path: str) -> None:
