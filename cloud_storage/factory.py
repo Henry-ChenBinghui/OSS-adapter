@@ -1,3 +1,4 @@
+import os
 from enum import Enum
 from typing import Optional, Dict, Any
 from .base import CloudStorage
@@ -16,7 +17,48 @@ class CloudStorageFactory:
     """Factory class for creating cloud storage instances."""
     
     @staticmethod
-    def create_storage(
+    def create_storage(bucket_name: str) -> CloudStorage:
+        """Create a cloud storage instance based on environment configuration.
+        
+        Args:
+            bucket_name: Name of the bucket/container
+            
+        Returns:
+            CloudStorage: An instance of the configured cloud storage
+            
+        Raises:
+            ConfigurationError: If no valid cloud storage configuration is found
+        """
+        # Check for Azure configuration
+        if os.getenv('AZURE_STORAGE_ACCOUNT_URL'):
+            return AzureBlobStorage(
+                bucket_name=bucket_name,
+                account_url=os.getenv('AZURE_STORAGE_ACCOUNT_URL')
+            )
+            
+        # Check for AWS configuration
+        if os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'):
+            return S3Storage(
+                bucket_name=bucket_name,
+                region_name=os.getenv('AWS_REGION', 'us-east-1')
+            )
+            
+        # Check for GCS configuration
+        if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+            return GCSStorage(
+                bucket_name=bucket_name
+            )
+            
+        raise ConfigurationError(
+            "No valid cloud storage configuration found. "
+            "Please set environment variables for one of the following:\n"
+            "- Azure: AZURE_STORAGE_ACCOUNT_URL\n"
+            "- AWS: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY\n"
+            "- GCS: GOOGLE_APPLICATION_CREDENTIALS"
+        )
+
+    @staticmethod
+    def create_storage_with_kwargs(
         provider: CloudProvider,
         bucket_name: str,
         **kwargs: Any
@@ -48,11 +90,11 @@ class CloudStorageFactory:
             )
             
         elif provider == CloudProvider.AZURE:
-            if 'connection_string' not in kwargs:
-                raise ConfigurationError("Missing required Azure connection string")
+            if 'account_url' not in kwargs:
+                raise ConfigurationError("Missing required Azure account URL")
             return AzureBlobStorage(
                 bucket_name=bucket_name,
-                connection_string=kwargs['connection_string']
+                account_url=kwargs['account_url']
             )
             
         elif provider == CloudProvider.GCP:
