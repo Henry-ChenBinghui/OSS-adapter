@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import os
 from ..base import CloudStorage
 from ..exceptions import OperationError, FileNotFoundError, ConfigurationError
+from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 
 class AzureBlobStorage(CloudStorage):
     """Azure Blob Storage implementation."""
@@ -90,9 +91,20 @@ class AzureBlobStorage(CloudStorage):
         try:
             blob_client = self.container_client.get_blob_client(remote_file_path)
             if expires_in:
-                sas_token = self.container_client.generate_shared_access_signature(
-                    permission='r',
-                    expiry=datetime.utcnow() + expires_in
+                # Get user delegation key
+                delegation_key = self.blob_service_client.get_user_delegation_key(
+                    key_start_time=datetime.utcnow(),
+                    key_expiry_time=datetime.utcnow() + expires_in
+                )
+                # Generate SAS token using user delegation key
+                sas_token = generate_blob_sas(
+                    account_name=self.blob_service_client.account_name,
+                    container_name=self.container_name,
+                    blob_name=remote_file_path,
+                    user_delegation_key=delegation_key,
+                    permission=BlobSasPermissions(read=True),
+                    start=delegation_key.signed_start,
+                    expiry=delegation_key.signed_expiry
                 )
                 return f"{blob_client.url}?{sas_token}"
             return blob_client.url
