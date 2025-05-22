@@ -1,7 +1,7 @@
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient
 from azure.identity import DefaultAzureCredential
 from typing import List, Dict, Optional, BinaryIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 from ..base import CloudStorage
 from ..exceptions import OperationError, FileNotFoundError, ConfigurationError
@@ -27,6 +27,8 @@ class AzureBlobStorage(CloudStorage):
         self.account_url = account_url
         self._blob_service_client = None
         self._container_clients = {}
+        self._delegation_key = None
+        self._delegation_key_expiry = None
 
     async def __aenter__(self):
         """Initialize service client when entering async context."""
@@ -40,6 +42,37 @@ class AzureBlobStorage(CloudStorage):
         for container_client in self._container_clients.values():
             await container_client.close()
         self._container_clients.clear()
+        self._delegation_key = None
+        self._delegation_key_expiry = None
+
+    async def _get_user_delegation_key(self, expires_in: timedelta) -> tuple:
+        """Get or create user delegation key with caching.
+        
+        Args:
+            expires_in: How long the key should be valid for
+            
+        Returns:
+            Tuple of (delegation_key, expiry_time)
+        """
+        now = datetime.now(timezone.utc)
+        expiry_time = now + expires_in
+        
+        # Return cached key if it's still valid
+        if (self._delegation_key and self._delegation_key_expiry and 
+            self._delegation_key_expiry > now + timedelta(minutes=5)):  # 5 min buffer
+            return self._delegation_key, self._delegation_key_expiry
+            
+        # Get new key
+        delegation_key = await self._blob_service_client.get_user_delegation_key(
+            key_start_time=now,
+            key_expiry_time=expiry_time
+        )
+        
+        # Cache the key
+        self._delegation_key = delegation_key
+        self._delegation_key_expiry = expiry_time
+        
+        return delegation_key, expiry_time
 
     async def _get_container_client(self, container_name: str) -> ContainerClient:
         """Get or create container client.
@@ -136,10 +169,7 @@ class AzureBlobStorage(CloudStorage):
             async with blob_client:
                 if expires_in:
                     # Get user delegation key
-                    delegation_key = await self._blob_service_client.get_user_delegation_key(
-                        key_start_time=datetime.utcnow(),
-                        key_expiry_time=datetime.utcnow() + expires_in
-                    )
+                    delegation_key, expiry_time = await self._get_user_delegation_key(expires_in)
                     # Generate SAS token using user delegation key
                     sas_token = generate_blob_sas(
                         account_name=self._blob_service_client.account_name,
@@ -148,7 +178,7 @@ class AzureBlobStorage(CloudStorage):
                         user_delegation_key=delegation_key,
                         permission=BlobSasPermissions(read=True),
                         start=delegation_key.signed_start,
-                        expiry=delegation_key.signed_expiry
+                        expiry=expiry_time
                     )
                     return f"{blob_client.url}?{sas_token}"
                 return blob_client.url
