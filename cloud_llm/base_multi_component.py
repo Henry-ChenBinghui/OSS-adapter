@@ -1,8 +1,7 @@
-from .base import BaseCloudLLM
 from .common_load_balancer import LoadBalancer, LlmInstanceEntry
 from typing import List, Any
 
-class BaseMultiComponentLLM(BaseCloudLLM):
+class BaseMultiComponentLLM:
     def __init__(self):
         self.llm_clients = self._init_clients("llm")
         self.analyser_clients = self._init_clients("analyser")

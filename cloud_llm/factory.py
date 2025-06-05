@@ -9,7 +9,7 @@ CLOUD_PROVIDER_ENV = "CLOUD_PROVIDER"
 
 class CloudLLMFactory:
     @staticmethod
-    def get_llm() -> 'BaseMultiComponentLLM':
+    def get_llm() -> BaseMultiComponentLLM:
         provider = os.environ.get(CLOUD_PROVIDER_ENV, CloudProvider.AZURE).lower()
         if provider == CloudProvider.AZURE:
             return AzureCloudLLM()
